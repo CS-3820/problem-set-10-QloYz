@@ -94,6 +94,11 @@ Suppose there's an instance of variable `x` in `N`.  Do you think that it should
 be replaced by the substitution?
 
 -------------------------------------------------------------------------------}
+-- substUnder: Substitutes `x` with `m` in `n`, unless `y` is equal to `x` (to respect variable shadowing).
+substUnder :: String -> Expr -> String -> Expr -> Expr
+substUnder x m y n 
+  | x == y    = n  -- If `y` shadows `x`, do not perform substitution in `n`
+  | otherwise = subst x m n  -- Otherwise, perform substitution
 
 subst :: String -> Expr -> Expr -> Expr
 subst _ _ (Const i) = Const i
