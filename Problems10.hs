@@ -206,44 +206,58 @@ bubble; this won't *just* be `Throw` and `Catch.
 -------------------------------------------------------------------------------}
 
 smallStep :: (Expr, Expr) -> Maybe (Expr, Expr)
-smallStep (Const i, acc) = Nothing  -- `Const` is already a value
--- smallStep should already be defined to handle the evaluation of a single step
--- steps repeatedly applies smallStep to generate the entire sequence of steps
+smallStep (Plus (Const i) (Const j), acc) = Just (Const (i + j), acc)
+smallStep (Plus (Throw m) n, acc) | isValue m = Just (Throw m, acc)
+smallStep (Plus (Const i) (Throw n), acc) | isValue n = Just (Throw n, acc)
+smallStep (Plus m n, acc) = 
+    case smallStep (m, acc) of
+        Just (m', acc') -> Just (Plus m' n, acc')
+        Nothing -> case smallStep (n, acc) of
+                    Just (n', acc') -> Just (Plus m n', acc')
+                    Nothing -> Nothing
+
+smallStep (App (Lam x m) (Throw n), acc) | isValue n = Just (Throw n, acc)
+smallStep (App (Throw m) n, acc) | isValue m = Just (Throw m, acc)
+smallStep (App (Lam x m) n, acc) | isValue n = Just (subst x n m, acc)
+smallStep (App (Lam x m) n, acc) = 
+    case smallStep (n, acc) of
+        Just (n', acc') -> Just (App (Lam x m) n', acc')
+        Nothing -> Nothing
+smallStep (App m n, acc) = 
+    case smallStep (m, acc) of
+        Just (m', acc') -> Just (App m' n, acc')
+        Nothing -> Nothing
+
+smallStep (Store (Throw m), acc) | isValue m = Just (Throw m, acc)
+smallStep (Store m, acc) | isValue m = Just (m, m)
+smallStep (Store m, acc) = 
+    case smallStep (m, acc) of
+        Just (m', acc') -> Just (Store m', acc')
+        Nothing -> Nothing
+smallStep (Recall, acc) = Just (acc, acc)
+
+
+smallStep (Throw (Throw m), acc) | isValue m = Just (Throw m, acc)
+smallStep (Throw m, acc) | isValue m = Nothing
+smallStep (Throw m, acc) = 
+    case smallStep (m, acc) of
+        Just (m', acc') -> Just (Throw m', acc')
+        Nothing -> Nothing
+
+
+smallStep (Catch (Throw m) y n, acc) | isValue m = Just (subst y m n, acc)
+smallStep (Catch m y n, acc) | isValue m = Just (m, acc)
+smallStep (Catch m y n, acc) = 
+    case smallStep (m, acc) of
+        Just (m', acc') -> Just (Catch m' y n, acc')
+        Nothing -> Nothing
+
+smallStep _ = Nothing
+
 steps :: (Expr, Expr) -> [(Expr, Expr)]
 steps s = case smallStep s of
-    Nothing     -> [s]  -- If no further steps are possible, return the current state
-    Just s'     -> s : steps s'  -- Otherwise, apply smallStep recursively and add the result to the list
+            Nothing -> [s]
+            Just s' -> s : steps s'
 
-smallStep (Plus (Const i) (Const j), acc) = Just (Const (i + j), acc)  -- Both arguments are values
-smallStep (Plus e1 e2, acc) = 
-    case e1 of
-      Const _ -> fmap (\(e2', acc') -> (Plus e1 e2', acc')) (smallStep (e2, acc))  -- e1 is a value, step e2
-      Throw v -> Just (Throw v, acc)  -- Exception bubbles up
-      _       -> fmap (\(e1', acc') -> (Plus e1' e2, acc')) (smallStep (e1, acc))  -- Step e1
-
-smallStep (App (Lam x e) v, acc) | isValue v = Just (subst x v e, acc)  -- Function application
-smallStep (App e1 e2, acc) =
-    case e1 of
-      Lam _ _ -> fmap (\(e2', acc') -> (App e1 e2', acc')) (smallStep (e2, acc))  -- e1 is a function, step e2
-      Throw v -> Just (Throw v, acc)  -- Exception bubbles up
-      _       -> fmap (\(e1', acc') -> (App e1' e2, acc')) (smallStep (e1, acc))  -- Step e1
-
-smallStep (Store e, acc) =
-    if isValue e
-    then Just (Const 0, e)  -- Update accumulator with e, and return Const 0 as the new value
-    else fmap (\(e', _) -> (Store e', acc)) (smallStep (e, acc))  -- Evaluate the stored expression
-
-smallStep (Recall, acc) = Just (acc, acc)  -- Return current accumulator value
-
-smallStep (Throw e, acc) = 
-    if isValue e
-    then Just (Throw e, acc)  -- Exception is now thrown as a value
-    else fmap (\(e', acc') -> (Throw e', acc')) (smallStep (e, acc))  -- Evaluate the thrown expression
-
-smallStep (Catch e1 y e2, acc) =
-    case e1 of
-      Const _ -> Just (e1, acc)  -- `Catch` returns the value if e1 evaluates to a value
-      Throw v -> Just (subst y v e2, acc)  -- Exception caught, substitute v for y in e2
-      _       -> fmap (\(e1', acc') -> (Catch e1' y e2, acc')) (smallStep (e1, acc))  -- Step e1
-
-smallStep (_, _) = Nothing  -- No further steps
+prints :: Show a => [a] -> IO ()
+prints = mapM_ print
