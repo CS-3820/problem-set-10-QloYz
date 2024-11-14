@@ -95,20 +95,19 @@ be replaced by the substitution?
 
 -------------------------------------------------------------------------------}
 
-substUnder :: String -> Expr -> String -> Expr -> Expr
-substUnder x m y n 
-  | x == y = n
-  | otherwise = subst x m n
-
 subst :: String -> Expr -> Expr -> Expr
 subst _ _ (Const i) = Const i
 subst x m (Plus n1 n2) = Plus (subst x m n1) (subst x m n2)
-subst x m (Var y) 
-  | x == y = m
+subst x m (Var y)
+  | x == y    = m
   | otherwise = Var y
 subst x m (Lam y n) = Lam y (substUnder x m y n)
 subst x m (App n1 n2) = App (subst x m n1) (subst x m n2)
-subst x m n = undefined
+subst x m (Store n) = Store (subst x m n)  -- Substitute in the stored expression
+subst _ _ Recall = Recall                  -- Nothing to substitute in `Recall`
+subst x m (Throw n) = Throw (subst x m n)  -- Substitute in the thrown expression
+subst x m (Catch n1 y n2) = Catch (subst x m n1) y (substUnder x m y n2)
+
 
 {-------------------------------------------------------------------------------
 
@@ -202,12 +201,38 @@ bubble; this won't *just* be `Throw` and `Catch.
 -------------------------------------------------------------------------------}
 
 smallStep :: (Expr, Expr) -> Maybe (Expr, Expr)
-smallStep = undefined
+smallStep (Const i, acc) = Nothing  -- `Const` is already a value
 
-steps :: (Expr, Expr) -> [(Expr, Expr)]
-steps s = case smallStep s of
-            Nothing -> [s]
-            Just s' -> s : steps s'
+smallStep (Plus (Const i) (Const j), acc) = Just (Const (i + j), acc)  -- Both arguments are values
+smallStep (Plus e1 e2, acc) = 
+    case e1 of
+      Const _ -> fmap (\(e2', acc') -> (Plus e1 e2', acc')) (smallStep (e2, acc))  -- e1 is a value, step e2
+      Throw v -> Just (Throw v, acc)  -- Exception bubbles up
+      _       -> fmap (\(e1', acc') -> (Plus e1' e2, acc')) (smallStep (e1, acc))  -- Step e1
 
-prints :: Show a => [a] -> IO ()
-prints = mapM_ print
+smallStep (App (Lam x e) v, acc) | isValue v = Just (subst x v e, acc)  -- Function application
+smallStep (App e1 e2, acc) =
+    case e1 of
+      Lam _ _ -> fmap (\(e2', acc') -> (App e1 e2', acc')) (smallStep (e2, acc))  -- e1 is a function, step e2
+      Throw v -> Just (Throw v, acc)  -- Exception bubbles up
+      _       -> fmap (\(e1', acc') -> (App e1' e2, acc')) (smallStep (e1, acc))  -- Step e1
+
+smallStep (Store e, acc) =
+    if isValue e
+    then Just (Const 0, e)  -- Update accumulator with e, and return Const 0 as the new value
+    else fmap (\(e', _) -> (Store e', acc)) (smallStep (e, acc))  -- Evaluate the stored expression
+
+smallStep (Recall, acc) = Just (acc, acc)  -- Return current accumulator value
+
+smallStep (Throw e, acc) = 
+    if isValue e
+    then Just (Throw e, acc)  -- Exception is now thrown as a value
+    else fmap (\(e', acc') -> (Throw e', acc')) (smallStep (e, acc))  -- Evaluate the thrown expression
+
+smallStep (Catch e1 y e2, acc) =
+    case e1 of
+      Const _ -> Just (e1, acc)  -- `Catch` returns the value if e1 evaluates to a value
+      Throw v -> Just (subst y v e2, acc)  -- Exception caught, substitute v for y in e2
+      _       -> fmap (\(e1', acc') -> (Catch e1' y e2, acc')) (smallStep (e1, acc))  -- Step e1
+
+smallStep (_, _) = Nothing  -- No further steps
