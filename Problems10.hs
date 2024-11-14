@@ -207,6 +207,12 @@ bubble; this won't *just* be `Throw` and `Catch.
 
 smallStep :: (Expr, Expr) -> Maybe (Expr, Expr)
 smallStep (Const i, acc) = Nothing  -- `Const` is already a value
+-- smallStep should already be defined to handle the evaluation of a single step
+-- steps repeatedly applies smallStep to generate the entire sequence of steps
+steps :: (Expr, Expr) -> [(Expr, Expr)]
+steps s = case smallStep s of
+    Nothing     -> [s]  -- If no further steps are possible, return the current state
+    Just s'     -> s : steps s'  -- Otherwise, apply smallStep recursively and add the result to the list
 
 smallStep (Plus (Const i) (Const j), acc) = Just (Const (i + j), acc)  -- Both arguments are values
 smallStep (Plus e1 e2, acc) = 
